@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="PayPilot API reference: sandbox checkout, refund incident intake, agent runs, human decisions, metrics, and ledger verification." />
+<title>PayPilot — API Docs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css" />
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="PayPilot home">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 30 30" fill="none">
+        <rect x="1" y="1" width="28" height="28" rx="9" fill="#0d241d" stroke="#1f6f54"/>
+        <path d="M9.5 21.5V8.5h5.6c2.8 0 4.6 1.6 4.6 4.2 0 2.7-1.8 4.3-4.6 4.3h-2.7v4.5H9.5Z" fill="#34d399"/>
+        <circle cx="21" cy="21" r="2.2" fill="#34d399"/>
+      </svg>
+    </span>
+    <span>PayPilot</span>
+  </a>
+  <nav class="nav" aria-label="Primary">
+    <a href="/">Dashboard</a>
+    <a href="/architecture">Architecture</a>
+    <a href="/docs" class="active" aria-current="page">API Docs</a>
+  </nav>
+  <div class="topbar-actions">
+    <div class="env-badges">
+      <span class="env-badge"><span class="dot dot-ok"></span>Sandbox only</span>
+      <span class="env-badge"><span class="dot dot-info"></span>OpenAPI 3.1</span>
+    </div>
+    <a class="btn btn-sm" href="/openapi.json" target="_blank" rel="noopener">openapi.json</a>
+  </div>
+</header>
+
+<main class="docs-shell">
+  <section class="docs-head">
+    <div class="eyebrow">Developer surface</div>
+    <h1>PayPilot API</h1>
+    <p>Every dashboard action is an HTTP endpoint. Create and capture a sandbox order, open a refund incident, run the agent, record a human decision, and verify the hash-chained ledger. The interactive console below reads the live schema from <span class="mono">/openapi.json</span>.</p>
+  </section>
+
+  <div class="docs-card">
+    <div class="docs-card-head">
+      <h2>Interactive reference</h2>
+      <a class="docs-link" href="/openapi.json" target="_blank" rel="noopener">view schema ↗</a>
+    </div>
+    <div id="swagger-ui">
+      <div class="empty-state" id="docs-loading">
+        <div class="empty-icon" aria-hidden="true">◌</div>
+        <h3>Loading API reference</h3>
+        <p>Fetching the OpenAPI schema and Swagger UI assets.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="arch-foot">
+    <span>PayPilot · PayPal AI Hackathon · sandbox-only demonstration</span>
+    <span class="mono">/api/sandbox · /api/incidents · /api/actions · /api/ledger</span>
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  'use strict';
+
+  function showUnavailable() {
+    var target = document.getElementById('swagger-ui');
+    target.innerHTML =
+      '<div class="empty-state">' +
+        '<div class="empty-icon" aria-hidden="true">!</div>' +
+        '<h3>Interactive docs could not load</h3>' +
+        '<p>The Swagger UI assets are served from a CDN. The raw schema is still available at ' +
+        '<a href="/openapi.json">/openapi.json</a>.</p>' +
+      '</div>';
+  }
+
+  window.addEventListener('load', function () {
+    if (!window.SwaggerUIBundle) {
+      showUnavailable();
+      return;
+    }
+    try {
+      window.ui = window.SwaggerUIBundle({
+        url: '/openapi.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        docExpansion: 'list',
+        defaultModelsExpandDepth: 0,
+        defaultModelExpandDepth: 1,
+        displayRequestDuration: true,
+        tryItOutEnabled: true,
+        persistAuthorization: true,
+        filter: true,
+        syntaxHighlight: { theme: 'obsidian' },
+      });
+    } catch (_) {
+      showUnavailable();
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment and local data
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# Node / OS
+node_modules/
+.DS_Store
+Thumbs.db
+
+# IDEs and local tooling
+.idea/
+.vscode/
+.playwright-mcp/
+
+# Local artifacts
+*.log
+*.tmp

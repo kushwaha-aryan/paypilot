@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="PayPilot payment operations console: investigate incidents, inspect evidence, apply the deterministic policy gate, and verify the audit ledger." />
+<title>PayPilot — Payment Operations</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="PayPilot home">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 30 30" fill="none">
+        <rect x="1" y="1" width="28" height="28" rx="9" fill="#0d241d" stroke="#1f6f54"/>
+        <path d="M9.5 21.5V8.5h5.6c2.8 0 4.6 1.6 4.6 4.2 0 2.7-1.8 4.3-4.6 4.3h-2.7v4.5H9.5Z" fill="#34d399"/>
+        <circle cx="21" cy="21" r="2.2" fill="#34d399"/>
+      </svg>
+    </span>
+    <span>PayPilot</span>
+  </a>
+  <nav class="nav" aria-label="Primary">
+    <a href="/" class="active" aria-current="page">Dashboard</a>
+    <a href="/architecture">Architecture</a>
+    <a href="/docs">API Docs</a>
+  </nav>
+  <div class="topbar-actions">
+    <div class="env-badges">
+      <span class="env-badge" id="planner-badge" title="Agent planner">
+        <span class="dot dot-info" id="planner-dot"></span>
+        <span id="planner-text">planner: loading…</span>
+      </span>
+      <span class="env-badge" id="paypal-badge" title="PayPal mode">
+        <span class="dot dot-ok" id="paypal-dot"></span>
+        <span id="paypal-text">paypal: loading…</span>
+      </span>
+    </div>
+    <button class="btn btn-sm btn-ghost" id="refund-btn" type="button" title="Open a refund incident for a captured sandbox payment">+ Refund</button>
+    <button class="btn btn-sm" id="verify-btn" type="button">Verify chain</button>
+    <button class="btn btn-sm btn-primary" id="runall-btn" type="button">Run all</button>
+  </div>
+</header>
+
+<main class="app-shell">
+  <aside class="sidebar" aria-label="Incident queue">
+    <div class="sidebar-top">
+      <div class="sidebar-heading">
+        <div>
+          <div class="eyebrow">Operations</div>
+          <h1>Incidents</h1>
+        </div>
+        <span class="count-badge" id="incident-count" aria-label="Incident count">—</span>
+      </div>
+      <div class="metrics" id="metrics" aria-label="Operational metrics">
+        <div class="metric-card"><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w40"></div></div>
+        <div class="metric-card"><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w40"></div></div>
+        <div class="metric-card"><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w40"></div></div>
+        <div class="metric-card"><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w40"></div></div>
+      </div>
+      <div class="filter-row" id="filters" role="tablist" aria-label="Filter incidents"></div>
+    </div>
+    <div class="incident-list" id="incidents" aria-live="polite"></div>
+  </aside>
+
+  <section class="detail" id="detail" aria-live="polite">
+    <div class="detail-empty">
+      <div class="empty-icon" aria-hidden="true">◇</div>
+      <h2>Select an incident</h2>
+      <p>Pick an incident from the queue to inspect its evidence, policy verdict, proposed action, and audit trail.</p>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog class="modal" id="refund-dialog" aria-labelledby="refund-title">
+  <form id="refund-form" novalidate>
+    <div class="modal-head">
+      <div>
+        <div class="eyebrow">Refund intake</div>
+        <h2 id="refund-title">Open a refund incident</h2>
+      </div>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-dialog="refund-dialog" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>Link a captured sandbox payment to a refund incident. This creates the incident only — no PayPal call and no money moves until the agent runs and the policy gate allows a refund.</p>
+      <div class="field">
+        <label for="refund-payment-id">Payment ID</label>
+        <input class="input" id="refund-payment-id" name="payment_id" placeholder="P-SBX-…" autocomplete="off" spellcheck="false" required />
+        <span class="hint">Idempotent per payment: an existing open refund incident is returned instead of duplicated.</span>
+      </div>
+      <div class="error-card" id="refund-error" hidden>
+        <span class="error-icon" aria-hidden="true">!</span>
+        <div><strong>Could not open incident</strong><span id="refund-error-text"></span></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" type="button" data-close-dialog="refund-dialog">Cancel</button>
+      <button class="btn btn-primary" id="refund-submit" type="submit">Open incident</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="runall-dialog" aria-labelledby="runall-title">
+  <div class="modal-head">
+    <div>
+      <div class="eyebrow warn">Bulk agent run</div>
+      <h2 id="runall-title">Run every open incident?</h2>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-close-dialog="runall-dialog" aria-label="Close">✕</button>
+  </div>
+  <div class="modal-body">
+    <p>The agent will investigate each open incident. Actions that pass the deterministic policy gate execute immediately against the PayPal sandbox; anything above a merchant limit waits for human approval.</p>
+    <p class="hint">Sandbox only. No live money moves. Each run is recorded in the hash-chained audit ledger.</p>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" type="button" data-close-dialog="runall-dialog">Cancel</button>
+    <button class="btn btn-primary" id="runall-confirm" type="button">Run agent</button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="paypal-dialog" aria-labelledby="paypal-title">
+  <div class="modal-head">
+    <div>
+      <div class="eyebrow">Live PayPal Sandbox</div>
+      <h2 id="paypal-title">Refund lookup</h2>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-close-dialog="paypal-dialog" aria-label="Close">✕</button>
+  </div>
+  <div class="modal-body">
+    <p>Read-only <span class="mono">GET /v2/payments/refunds/&lt;id&gt;</span> against
+      <span class="mono">api-m.sandbox.paypal.com</span>. No refund, capture or order is created.</p>
+    <div class="paypal-loading" id="paypal-loading">
+      <div class="skeleton skeleton-line w80"></div>
+      <div class="skeleton skeleton-line w60"></div>
+      <div class="skeleton skeleton-line w40"></div>
+      <p class="hint">Contacting api-m.sandbox.paypal.com…</p>
+    </div>
+    <div id="paypal-result" hidden>
+      <div class="paypal-result-head">
+        <span class="pill pill-ok" id="paypal-status">—</span>
+        <span class="tag" id="paypal-latency">—</span>
+      </div>
+      <div class="kv"><span class="k">Refund ID</span><span class="v mono" id="paypal-id">—</span></div>
+      <div class="kv"><span class="k">Amount</span><span class="v strong" id="paypal-amount">—</span></div>
+      <div class="kv"><span class="k">Created</span><span class="v" id="paypal-created">—</span></div>
+      <div class="kv"><span class="k">Note</span><span class="v" id="paypal-note">—</span></div>
+      <p class="hint mono" id="paypal-path">GET /v2/payments/refunds/…</p>
+    </div>
+    <div class="error-card" id="paypal-error" hidden>
+      <span class="error-icon" aria-hidden="true">!</span>
+      <div><strong>PayPal lookup failed</strong><span id="paypal-error-text"></span></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-ghost" type="button" data-close-dialog="paypal-dialog">Close</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  const state = { current: null, incidents: [], filter: 'all' };
+  let toastTimer = null;
+
+  const $ = (selector) => document.querySelector(selector);
+  const detailEl = $('#detail');
+  const listEl = $('#incidents');
+  const filtersEl = $('#filters');
+  const toastEl = $('#toast');
+
+  const FILTERS = [
+    ['all', 'All'],
+    ['open', 'Open'],
+    ['review', 'Review'],
+    ['resolved', 'Resolved'],
+    ['escalated', 'Escalated'],
+  ];
+
+  function esc(value) {
+    return String(value === null || value === undefined ? '' : value).replace(
+      /[&<>"']/g,
+      (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])
+    );
+  }
+
+  function label(value) {
+    return String(value || '').replace(/_/g, ' ');
+  }
+
+  async function api(path, opts) {
+    const response = await fetch(path, opts);
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch (_) { data = text; }
+    }
+    if (!response.ok) {
+      const message =
+        (data && typeof data === 'object' && (data.detail || data.message)) ||
+        (typeof data === 'string' && data) ||
+        response.statusText ||
+        'request failed';
+      throw new Error(String(message));
+    }
+    return data;
+  }
+
+  function money(cents, currency) {
+    const code = String(currency || 'USD').toUpperCase();
+    const amount = Number(cents || 0) / 100;
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(amount);
+    } catch (_) {
+      return code + ' ' + amount.toFixed(2);
+    }
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso);
+    return date.toLocaleString(undefined, {
+      month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function riskChip(score) {
+    const value = Number(score || 0);
+    const level = value >= 0.85 ? 'high' : value >= 0.5 ? 'mid' : 'low';
+    const width = Math.max(4, Math.min(100, Math.round(value * 100)));
+    return '<span class="risk-chip risk-' + level + '" title="Risk score ' + value.toFixed(2) + '">' +
+      '<span class="risk-bar"><i style="width:' + width + '%"></i></span>' +
+      value.toFixed(2) + '</span>';
+  }
+
+  function paymentPill(status) {
+    const map = { succeeded: 'resolved', refunded: 'refunded', failed: 'escalated', pending: 'awaiting_approval' };
+    return '<span class="pill ' + (map[status] || 'proposed') + '">' + esc(status) + '</span>';
+  }
+
+  function showToast(message, kind) {
+    toastEl.className = 'toast show ' + (kind || 'info');
+    toastEl.innerHTML = '<span class="toast-dot"></span><span>' + esc(message) + '</span>';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 5200);
+  }
+
+  function setHealth(health) {
+    const planner = $('#planner-text');
+    const plannerDot = $('#planner-dot');
+    const paypal = $('#paypal-text');
+    const paypalDot = $('#paypal-dot');
+    const llm = health.llm === 'anthropic';
+    planner.textContent = 'planner: ' + (llm ? 'LLM' : 'rules');
+    plannerDot.className = 'dot ' + (llm ? 'dot-violet' : 'dot-info');
+    $('#planner-badge').title = 'Active planner: ' + health.llm;
+    const live = health.paypal === 'live-sandbox';
+    paypal.textContent = 'paypal: ' + (live ? 'sandbox' : 'mock');
+    paypalDot.className = 'dot ' + (live ? 'dot-ok' : 'dot-warn');
+    $('#paypal-badge').title = 'PayPal mode: ' + health.paypal;
+  }
+
+  function renderMetrics(metrics) {
+    const open = metrics.incidents.open + metrics.incidents.awaiting_approval;
+    const autonomy = Math.round((metrics.autonomy_rate || 0) * 100);
+    $('#metrics').innerHTML =
+      '<div class="metric-card metric-accent">' +
+        '<div class="metric-label">Recovered</div>' +
+        '<div class="metric-value">' + money(metrics.recovered.amount_cents) + '</div>' +
+        '<div class="metric-sub">' + metrics.recovered.count + ' recovered incident' + (metrics.recovered.count === 1 ? '' : 's') + '</div>' +
+      '</div>' +
+      '<div class="metric-card">' +
+        '<div class="metric-label">Open queue</div>' +
+        '<div class="metric-value">' + open + '</div>' +
+        '<div class="metric-sub">' + metrics.incidents.awaiting_approval + ' awaiting human</div>' +
+      '</div>' +
+      '<div class="metric-card">' +
+        '<div class="metric-label">Autonomous</div>' +
+        '<div class="metric-value">' + metrics.actions.autonomous + '</div>' +
+        '<div class="metric-sub">' + autonomy + '% autonomy rate</div>' +
+      '</div>' +
+      '<div class="metric-card metric-warn">' +
+        '<div class="metric-label">Awaiting human</div>' +
+        '<div class="metric-value">' + metrics.incidents.awaiting_approval + '</div>' +
+        '<div class="metric-sub">' + metrics.actions.blocked + ' blocked by policy</div>' +
+      '</div>';
+  }
+
+  function matchesFilter(incident) {
+    if (state.filter === 'all') return true;
+    if (state.filter === 'review') {
+      return incident.status === 'awaiting_approval' || incident.needs_approval;
+    }
+    return incident.status === state.filter;
+  }
+
+  function renderFilters() {
+    const counts = {
+      all: state.incidents.length,
+      open: state.incidents.filter((i) => i.status === 'open').length,
+      review: state.incidents.filter((i) => i.status === 'awaiting_approval' || i.needs_approval).length,
+      resolved: state.incidents.filter((i) => i.status === 'resolved').length,
+      escalated: state.incidents.filter((i) => i.status === 'escalated').length,
+    };
+    filtersEl.innerHTML = FILTERS.map(([key, text]) =>
+      '<button class="filter ' + (state.filter === key ? 'active' : '') + '" type="button" role="tab" ' +
+      'aria-selected="' + (state.filter === key) + '" data-filter="' + key + '">' +
+      text + '<span class="filter-count">' + counts[key] + '</span></button>'
+    ).join('');
+  }
+
+  function incidentItem(incident) {
+    const active = state.current === incident.id ? ' active' : '';
+    return '<button class="incident-item' + active + '" type="button" data-id="' + esc(incident.id) + '">' +
+      '<div class="incident-row">' +
+        '<span class="incident-id">' + esc(incident.id) + '</span>' +
+        '<span class="pill ' + esc(incident.status) + '">' + esc(label(incident.status)) + '</span>' +
+        '<span class="incident-amount">' + money(incident.amount_cents, incident.currency) + '</span>' +
+      '</div>' +
+      '<div class="incident-kind">' + esc(label(incident.kind)) + '</div>' +
+      '<div class="incident-meta">' + esc(incident.customer_name) + ' · ' + esc(incident.merchant_name) + '</div>' +
+      '<div class="incident-foot">' +
+        '<span class="payment-state">' + esc(incident.payment_status) + '</span>' +
+        (incident.failure_reason ? '<span class="payment-state">· ' + esc(incident.failure_reason) + '</span>' : '') +
+        riskChip(incident.risk_score) +
+        (incident.needs_approval ? '<span class="needs-review">approval</span>' : '') +
+      '</div>' +
+    '</button>';
+  }
+
+  function renderList() {
+    $('#incident-count').textContent = String(state.incidents.length);
+    renderFilters();
+    const visible = state.incidents.filter(matchesFilter);
+    if (!state.incidents.length) {
+      listEl.innerHTML = '<div class="empty-state compact">' +
+        '<div class="empty-icon" aria-hidden="true">◌</div>' +
+        '<h3>No incidents yet</h3>' +
+        '<p>Seed the demo dataset or open a refund incident for a captured sandbox payment.</p>' +
+      '</div>';
+      return;
+    }
+    if (!visible.length) {
+      listEl.innerHTML = '<div class="empty-state compact">' +
+        '<div class="empty-icon" aria-hidden="true">⌕</div>' +
+        '<h3>Nothing in this view</h3>' +
+        '<p>No incidents match the selected filter. Try “All” to see the full queue.</p>' +
+      '</div>';
+      return;
+    }
+    listEl.innerHTML = visible.map(incidentItem).join('');
+  }
+
+  function renderListSkeleton() {
+    const cards = Array.from({ length: 5 }, () =>
+      '<div class="skeleton skeleton-card" style="height:84px"></div>'
+    ).join('');
+    listEl.innerHTML = cards;
+  }
+
+  function showListError(error) {
+    listEl.innerHTML = '<div style="padding:10px">' +
+      '<div class="error-card"><span class="error-icon" aria-hidden="true">!</span>' +
+      '<div><strong>Queue unavailable</strong>' + esc(error.message) + '</div></div></div>';
+  }
+
+  function detailSkeleton() {
+    return '<div class="detail-head">' +
+        '<div style="flex:1">' +
+          '<div class="skeleton skeleton-line w40" style="height:9px"></div>' +
+          '<div class="skeleton skeleton-line w60" style="height:24px;margin:12px 0"></div>' +
+          '<div class="skeleton skeleton-line w80"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="summary-strip">' +
+        Array.from({ length: 4 }, () => '<div class="summary-item">' +
+          '<div class="skeleton skeleton-line w40" style="height:8px"></div>' +
+          '<div class="skeleton skeleton-line w60" style="height:18px;margin-top:10px"></div>' +
+        '</div>').join('') +
+      '</div>' +
+      '<div class="section-title">Facts</div>' +
+      '<div class="facts-grid">' +
+        '<div class="card card-body"><div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w40"></div></div>' +
+        '<div class="card card-body"><div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w40"></div></div>' +
+      '</div>';
+  }
+
+  function detailError(error) {
+    return '<div style="max-width:560px;margin:8vh auto 0">' +
+      '<div class="error-card"><span class="error-icon" aria-hidden="true">!</span>' +
+      '<div><strong>Could not load incident</strong>' + esc(error.message) +
+      '<div style="margin-top:10px"><button class="btn btn-sm" type="button" data-retry-detail>Retry</button></div>' +
+      '</div></div></div>';
+  }
+
+  function markActive() {
+    listEl.querySelectorAll('.incident-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.id === state.current);
+    });
+  }
+
+  async function openIncident(id) {
+    state.current = id;
+    markActive();
+    detailEl.innerHTML = detailSkeleton();
+    try {
+      const data = await api('/api/incidents/' + encodeURIComponent(id));
+      if (state.current !== id) return;
+      renderDetail(data);
+    } catch (error) {
+      if (state.current !== id) return;
+      detailEl.innerHTML = detailError(error);
+    }
+  }
+
+  function resultCell(action) {
+    const result = action.result;
+    if (!result) return '<span class="faint">—</span>';
+    if (result.ok === false) {
+      const reason = (result.error && (result.error.message || result.error.name)) || 'execution failed';
+      return '<span class="result-bad">failed</span><div class="result-note">' + esc(reason) + '</div>';
+    }
+    if (result.ok === true) {
+      const note = result.note || result.refund_id || result.id || result.status ||
+        (result.mode ? result.mode + ' ok' : 'ok');
+      return '<span class="result-ok">ok</span><div class="result-note">' + esc(note) + '</div>';
+    }
+    return '<span class="result-note">' + esc(JSON.stringify(result).slice(0, 90)) + '</span>';
+  }
+
+  function actionRow(action) {
+    const controls = action.status === 'awaiting_approval'
+      ? '<div class="row-actions">' +
+          '<button class="btn btn-xs btn-primary" type="button" data-approve="' + esc(action.id) + '">Approve</button>' +
+          '<button class="btn btn-xs btn-danger" type="button" data-reject="' + esc(action.id) + '">Reject</button>' +
+        '</div>'
+      : '<span class="faint">—</span>';
+    return '<tr>' +
+      '<td><div class="cell-strong">' + esc(label(action.type)) + '</div>' +
+        '<div class="cell-mono faint">' + esc(action.id) + '</div></td>' +
+      '<td><span class="pill ' + esc(action.policy_verdict) + '">' + esc(action.policy_verdict) + '</span></td>' +
+      '<td><div class="result-note">' + esc(action.policy_reason) + '</div></td>' +
+      '<td><span class="pill ' + esc(action.status) + '">' + esc(label(action.status)) + '</span></td>' +
+      '<td>' + resultCell(action) + '</td>' +
+      '<td class="cell-actions">' + controls + '</td>' +
+    '</tr>';
+  }
+
+  function evidenceItem(evidence) {
+    return '<div class="evidence-item">' +
+      '<div class="evidence-marker" aria-hidden="true"></div>' +
+      '<div class="evidence-body">' +
+        '<div class="evidence-head">' +
+          '<span class="tool-tag">' + esc(evidence.tool) + '</span>' +
+          '<span class="incident-id">' + esc(evidence.id) + '</span>' +
+          '<span class="evidence-time">' + esc(fmtDate(evidence.created_at)) + '</span>' +
+        '</div>' +
+        '<div class="evidence-summary">' + esc(evidence.summary) + '</div>' +
+        '<details class="evidence-json"><summary>payload</summary><pre>' +
+          esc(JSON.stringify(evidence.payload, null, 2)) +
+        '</pre></details>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderDetail(data) {
+    const incident = data.incident;
+    const payment = data.payment;
+    const customer = data.customer;
+    const merchant = data.merchant;
+    const order = data.order;
+    const outcome = incident.outcome
+      ? '<span class="pill ' + esc(incident.outcome) + '">' + esc(label(incident.outcome)) + '</span>'
+      : '<span class="muted">' + (data.actions.length ? data.actions.length + ' action' + (data.actions.length === 1 ? '' : 's') : 'not run yet') + '</span>';
+
+    const devices = (customer.known_device_ids || [])
+      .map((id) => '<span class="tag">' + esc(id) + '</span>').join(' ') || '<span class="faint">none recorded</span>';
+
+    const evidenceHtml = data.evidence.length
+      ? '<div class="evidence-list">' + data.evidence.map(evidenceItem).join('') + '</div>'
+      : '<div class="empty-state compact"><div class="empty-icon" aria-hidden="true">◌</div>' +
+        '<h3>No evidence collected yet</h3><p>Run the agent to gather payment, order, customer, policy, and risk evidence.</p></div>';
+
+    const actionsHtml = data.actions.length
+      ? data.actions.map(actionRow).join('')
+      : '<tr><td colspan="6"><div class="empty-state compact"><div class="empty-icon" aria-hidden="true">◇</div>' +
+        '<h3>No actions proposed yet</h3><p>The agent proposes an action only after gathering evidence.</p></div></td></tr>';
+
+    const ledgerHtml = data.ledger.length
+      ? data.ledger.map((entry) => {
+          const payload = JSON.stringify(entry.payload);
+          return '<tr>' +
+            '<td class="ledger-seq">' + String(entry.seq).padStart(3, '0') + '</td>' +
+            '<td class="cell-mono">' + esc(entry.kind) + '</td>' +
+            '<td><div class="ledger-payload" title="' + esc(payload) + '">' + esc(payload) + '</div></td>' +
+            '<td class="cell-mono faint">' + esc(fmtDate(entry.ts)) + '</td>' +
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="4"><div class="empty-state compact"><h3>No ledger entries</h3><p>Entries appear as the incident progresses.</p></div></td></tr>';
+
+    const refundAction = data.actions.find((action) =>
+      action.type === 'refund' &&
+      action.result &&
+      action.result.ok !== false &&
+      action.result.id
+    );
+
+    detailEl.innerHTML =
+      '<div class="detail-head">' +
+        '<div class="detail-title">' +
+          '<div class="eyebrow">Incident ' + esc(incident.id) + '</div>' +
+          '<h2>' + esc(label(incident.kind)) + '</h2>' +
+          '<div class="detail-meta">' + esc(customer.name) + ' · ' + esc(merchant.name) +
+            ' · opened ' + esc(fmtDate(incident.created_at)) + '</div>' +
+        '</div>' +
+        '<div class="detail-badges">' +
+          '<span class="pill ' + esc(incident.status) + '">' + esc(label(incident.status)) + '</span>' +
+          (incident.outcome ? '<span class="pill ' + esc(incident.outcome) + '">' + esc(label(incident.outcome)) + '</span>' : '') +
+          riskChip(payment.risk_score) +
+        '</div>' +
+      '</div>' +
+
+      '<div class="summary-strip">' +
+        '<div class="summary-item"><span class="summary-label">Amount</span>' +
+          '<div class="summary-value">' + money(payment.amount_cents, payment.currency) + '</div></div>' +
+        '<div class="summary-item"><span class="summary-label">Payment</span>' +
+          '<div class="summary-value text">' + paymentPill(payment.status) + '</div></div>' +
+        '<div class="summary-item"><span class="summary-label">Risk score</span>' +
+          '<div class="summary-value">' + riskChip(payment.risk_score) + '</div></div>' +
+        '<div class="summary-item"><span class="summary-label">Outcome</span>' +
+          '<div class="summary-value text">' + outcome + '</div></div>' +
+        (refundAction
+          ? '<div class="summary-item"><span class="summary-label">PayPal</span>' +
+            '<div class="summary-value text"><button class="btn btn-sm" type="button" ' +
+              'data-paypal-refund="' + esc(refundAction.result.id) + '" ' +
+              'title="GET the refund from the PayPal Sandbox API">Check refund</button></div></div>'
+          : '') +
+      '</div>' +
+
+      '<div class="actions-bar">' +
+        '<button class="btn btn-primary" type="button" data-run="' + esc(incident.id) + '">' +
+          (data.evidence.length ? 'Re-run agent' : 'Run agent') + '</button>' +
+        '<button class="btn" type="button" data-refresh="' + esc(incident.id) + '">Refresh</button>' +
+        '<span class="spacer"></span>' +
+        '<span class="tag">merchant cap ' + money(merchant.refund_auto_limit_cents, payment.currency) + '</span>' +
+      '</div>' +
+
+      '<div class="section-title">Facts</div>' +
+      '<div class="facts-grid">' +
+        '<div class="card">' +
+          '<div class="card-head"><h3>Customer</h3><span class="tag">' + esc(customer.id) + '</span></div>' +
+          '<div class="card-body">' +
+            '<div class="kv"><span class="k">Name</span><span class="v strong">' + esc(customer.name) + '</span></div>' +
+            '<div class="kv"><span class="k">Country</span><span class="v">' + esc(customer.country_iso) + '</span></div>' +
+            '<div class="kv"><span class="k">Account since</span><span class="v">' + esc(fmtDate(customer.account_created_at)) + '</span></div>' +
+            '<div class="kv"><span class="k">Lifetime orders</span><span class="v">' + esc(customer.lifetime_orders) + '</span></div>' +
+            '<div class="kv"><span class="k">Lifetime spend</span><span class="v">' + money(customer.lifetime_spend_cents, payment.currency) + '</span></div>' +
+            '<div class="kv"><span class="k">Known devices</span><span class="v">' + devices + '</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card">' +
+          '<div class="card-head"><h3>Payment</h3><span class="tag">' + esc(order.id) + '</span></div>' +
+          '<div class="card-body">' +
+            '<div class="kv"><span class="k">Status</span><span class="v">' + paymentPill(payment.status) + '</span></div>' +
+            '<div class="kv"><span class="k">Amount</span><span class="v strong">' + money(payment.amount_cents, payment.currency) + '</span></div>' +
+            '<div class="kv"><span class="k">Attempts</span><span class="v">' + esc(payment.attempt_count) + '</span></div>' +
+            '<div class="kv"><span class="k">Risk score</span><span class="v">' + riskChip(payment.risk_score) + '</span></div>' +
+            '<div class="kv"><span class="k">IP country</span><span class="v">' + esc(payment.ip_country || '—') + '</span></div>' +
+            '<div class="kv"><span class="k">Device</span><span class="v">' + esc(payment.device_id || '—') + '</span></div>' +
+            '<div class="kv"><span class="k">Capture ID</span><span class="v" title="' + esc(payment.paypal_capture_id || '') + '">' + esc(payment.paypal_capture_id || '—') + '</span></div>' +
+            (payment.failure_reason ? '<div class="kv"><span class="k">Failure</span><span class="v">' + esc(payment.failure_reason) + '</span></div>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="section-title">Evidence</div>' +
+      '<div class="card">' +
+        '<div class="card-head"><h3>Evidence trail</h3><span class="tag">' + data.evidence.length + ' items</span></div>' +
+        '<div class="card-body">' + evidenceHtml + '</div>' +
+      '</div>' +
+
+      '<div class="section-title">Policy</div>' +
+      '<div class="card">' +
+        '<div class="card-head"><h3>Proposed actions</h3><span class="tag">deterministic gate</span></div>' +
+        '<div class="table-scroll"><table class="data-table">' +
+          '<thead><tr><th>Action</th><th>Policy</th><th>Reason</th><th>Status</th><th>Result</th><th></th></tr></thead>' +
+          '<tbody>' + actionsHtml + '</tbody>' +
+        '</table></div>' +
+      '</div>' +
+
+      '<div class="section-title">Audit</div>' +
+      '<div class="card">' +
+        '<div class="card-head"><h3>Audit trail</h3><span class="tag">' + data.ledger.length + ' entries</span></div>' +
+        '<div class="table-scroll"><table class="data-table">' +
+          '<thead><tr><th>Seq</th><th>Event</th><th>Payload</th><th>Time</th></tr></thead>' +
+          '<tbody>' + ledgerHtml + '</tbody>' +
+        '</table></div>' +
+      '</div>';
+  }
+
+  async function refresh() {
+    try {
+      const [incidents, metrics] = await Promise.all([
+        api('/api/incidents'),
+        api('/api/metrics'),
+      ]);
+      state.incidents = incidents;
+      renderMetrics(metrics);
+      renderList();
+      if (state.current) {
+        if (incidents.some((incident) => incident.id === state.current)) {
+          await openIncident(state.current);
+        } else {
+          state.current = null;
+          detailEl.innerHTML = '<div class="detail-empty"><div class="empty-icon" aria-hidden="true">◇</div>' +
+            '<h2>Select an incident</h2><p>Pick an incident from the queue to inspect its evidence, policy verdict, proposed action, and audit trail.</p></div>';
+        }
+      }
+    } catch (error) {
+      showToast('Refresh failed: ' + error.message, 'bad');
+    }
+  }
+
+  async function runOne(id, button) {
+    const original = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Running…';
+    }
+    try {
+      const result = await api('/api/incidents/' + encodeURIComponent(id) + '/run', { method: 'POST' });
+      showToast('Agent finished ' + id + (result.outcome ? ' · ' + label(result.outcome) : ''), 'ok');
+      await refresh();
+    } catch (error) {
+      showToast('Run failed: ' + error.message, 'bad');
+      if (button) {
+        button.disabled = false;
+        button.textContent = original || 'Run agent';
+      }
+    }
+  }
+
+  async function decide(actionId, kind) {
+    try {
+      const result = await api('/api/actions/' + encodeURIComponent(actionId) + '/' + kind, { method: 'POST' });
+      const ok = kind === 'reject' || result.status !== 'failed';
+      const suffix = result.status ? ' → ' + label(result.status) : '';
+      showToast((kind === 'approve' ? 'Approved ' : 'Rejected ') + actionId + suffix, ok ? 'ok' : 'bad');
+      await refresh();
+    } catch (error) {
+      showToast((kind === 'approve' ? 'Approval' : 'Rejection') + ' failed: ' + error.message, 'bad');
+    }
+  }
+
+  async function verifyLedger(button) {
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Verifying…';
+    try {
+      const result = await api('/api/ledger/verify');
+      if (result.ok) {
+        showToast('Audit chain intact — ' + result.entries + ' entries verified.', 'ok');
+      } else {
+        showToast('Audit chain broken at seq ' + result.broken_at_seq + '. ' + (result.message || ''), 'bad');
+      }
+    } catch (error) {
+      showToast('Verification failed: ' + error.message, 'bad');
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  async function runAll() {
+    const open = state.incidents.filter((incident) => incident.status === 'open');
+    if (!open.length) {
+      showToast('No open incidents to run.', 'info');
+      return;
+    }
+    const button = $('#runall-confirm');
+    button.disabled = true;
+    button.textContent = 'Running…';
+    let done = 0;
+    let failed = 0;
+    for (const incident of open) {
+      try {
+        await api('/api/incidents/' + encodeURIComponent(incident.id) + '/run', { method: 'POST' });
+        done += 1;
+      } catch (_) {
+        failed += 1;
+      }
+    }
+    button.disabled = false;
+    button.textContent = 'Run agent';
+    showToast('Ran ' + done + ' incident' + (done === 1 ? '' : 's') +
+      (failed ? ' · ' + failed + ' failed' : ''), failed ? 'bad' : 'ok');
+    await refresh();
+  }
+
+  function openRefundDialog() {
+    $('#refund-form').reset();
+    $('#refund-error').hidden = true;
+    $('#refund-error-text').textContent = '';
+    $('#refund-dialog').showModal();
+    $('#refund-payment-id').focus();
+  }
+
+  async function submitRefund(event) {
+    event.preventDefault();
+    const paymentId = $('#refund-payment-id').value.trim();
+    const errorBox = $('#refund-error');
+    const errorText = $('#refund-error-text');
+    const submit = $('#refund-submit');
+    errorBox.hidden = true;
+    if (!paymentId) {
+      errorText.textContent = 'Enter the payment ID of a captured sandbox payment.';
+      errorBox.hidden = false;
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = 'Opening…';
+    try {
+      const result = await api('/api/incidents/refund-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_id: paymentId }),
+      });
+      $('#refund-dialog').close();
+      showToast(result.created
+        ? 'Opened ' + result.incident_id + ' for ' + result.payment_id + '.'
+        : result.incident_id + ' was already open for ' + result.payment_id + '.',
+        result.created ? 'ok' : 'info');
+      await refresh();
+      await openIncident(result.incident_id);
+    } catch (error) {
+      errorText.textContent = error.message;
+      errorBox.hidden = false;
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Open incident';
+    }
+  }
+
+  async function checkRefund(refundId) {
+    const dialog = $('#paypal-dialog');
+    const loading = $('#paypal-loading');
+    const resultBox = $('#paypal-result');
+    const errorBox = $('#paypal-error');
+    loading.hidden = false;
+    resultBox.hidden = true;
+    errorBox.hidden = true;
+    $('#paypal-error-text').textContent = '';
+    $('#paypal-status').textContent = '—';
+    $('#paypal-latency').textContent = '—';
+    $('#paypal-id').textContent = refundId;
+    $('#paypal-amount').textContent = '—';
+    $('#paypal-created').textContent = '—';
+    $('#paypal-note').textContent = '—';
+    $('#paypal-path').textContent = 'GET /v2/payments/refunds/' + refundId;
+    if (!dialog.open) dialog.showModal();
+    try {
+      const result = await api('/api/paypal/refunds/' + encodeURIComponent(refundId));
+      const amount = result.amount || {};
+      const value = amount.value || '';
+      const code = amount.currency_code || '';
+      $('#paypal-status').textContent = result.status || 'UNKNOWN';
+      $('#paypal-latency').textContent = '200 · ' + (Number(result.elapsed_ms || 0) / 1000).toFixed(2) + ' s';
+      $('#paypal-id').textContent = result.id || refundId;
+      $('#paypal-amount').textContent = value
+        ? (code === 'USD' ? '$' + value + ' USD' : value + (code ? ' ' + code : ''))
+        : '—';
+      $('#paypal-created').textContent = result.create_time
+        ? String(result.create_time).replace('T', ' ')
+        : '—';
+      $('#paypal-note').textContent = result.note_to_payer || '—';
+      loading.hidden = true;
+      resultBox.hidden = false;
+    } catch (error) {
+      loading.hidden = true;
+      $('#paypal-error-text').textContent = error.message;
+      errorBox.hidden = false;
+    }
+  }
+
+  // -- wiring ---------------------------------------------------------------
+
+  listEl.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-id]');
+    if (item) openIncident(item.dataset.id);
+  });
+
+  filtersEl.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-filter]');
+    if (!button) return;
+    state.filter = button.dataset.filter;
+    renderList();
+  });
+
+  detailEl.addEventListener('click', (event) => {
+    const paypal = event.target.closest('[data-paypal-refund]');
+    if (paypal) return checkRefund(paypal.dataset.paypalRefund);
+    const run = event.target.closest('[data-run]');
+    if (run) return runOne(run.dataset.run, run);
+    const refreshButton = event.target.closest('[data-refresh]');
+    if (refreshButton) return openIncident(refreshButton.dataset.refresh);
+    const approve = event.target.closest('[data-approve]');
+    if (approve) return decide(approve.dataset.approve, 'approve');
+    const reject = event.target.closest('[data-reject]');
+    if (reject) return decide(reject.dataset.reject, 'reject');
+    const retry = event.target.closest('[data-retry-detail]');
+    if (retry && state.current) return openIncident(state.current);
+  });
+
+  document.querySelectorAll('[data-close-dialog]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = document.getElementById(button.dataset.closeDialog);
+      if (dialog) dialog.close();
+    });
+  });
+
+  $('#refund-btn').addEventListener('click', openRefundDialog);
+  $('#refund-form').addEventListener('submit', submitRefund);
+  $('#verify-btn').addEventListener('click', (event) => verifyLedger(event.currentTarget));
+  $('#runall-btn').addEventListener('click', () => {
+    if (!state.incidents.some((incident) => incident.status === 'open')) {
+      showToast('No open incidents to run.', 'info');
+      return;
+    }
+    $('#runall-dialog').showModal();
+  });
+  $('#runall-confirm').addEventListener('click', () => {
+    $('#runall-dialog').close();
+    runAll();
+  });
+
+  async function boot() {
+    renderListSkeleton();
+    try {
+      const [health, incidents, metrics] = await Promise.all([
+        api('/api/health'),
+        api('/api/incidents'),
+        api('/api/metrics'),
+      ]);
+      setHealth(health);
+      state.incidents = incidents;
+      renderMetrics(metrics);
+      renderList();
+    } catch (error) {
+      showListError(error);
+      showToast('Could not load dashboard: ' + error.message, 'bad');
+    }
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

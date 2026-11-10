@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="PayPilot refund incident workflow: agent evidence, deterministic policy gate, PayPal Sandbox refund, and hash-chained audit ledger." />
+<title>PayPilot — Architecture</title>
+<link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/" aria-label="PayPilot home">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 30 30" fill="none">
+        <rect x="1" y="1" width="28" height="28" rx="9" fill="#0d241d" stroke="#1f6f54"/>
+        <path d="M9.5 21.5V8.5h5.6c2.8 0 4.6 1.6 4.6 4.2 0 2.7-1.8 4.3-4.6 4.3h-2.7v4.5H9.5Z" fill="#34d399"/>
+        <circle cx="21" cy="21" r="2.2" fill="#34d399"/>
+      </svg>
+    </span>
+    <span>PayPilot</span>
+  </a>
+  <nav class="nav" aria-label="Primary">
+    <a href="/">Dashboard</a>
+    <a href="/architecture" class="active" aria-current="page">Architecture</a>
+    <a href="/docs">API Docs</a>
+  </nav>
+  <div class="topbar-actions">
+    <div class="env-badges">
+      <span class="env-badge"><span class="dot dot-ok"></span>Sandbox only</span>
+      <span class="env-badge"><span class="dot dot-info"></span>v0.1.0</span>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <section class="arch-hero">
+    <div class="arch-hero-main">
+      <div class="eyebrow">System architecture</div>
+      <h1>How PayPilot moves money safely</h1>
+      <p>PayPal events become incidents, an agent gathers evidence, and a deterministic policy gate decides whether a refund executes automatically, waits for a human, or is blocked. Every step is written to a hash-chained audit ledger.</p>
+    </div>
+    <div class="arch-hero-aside" aria-label="Workflow facts">
+      <div class="hero-stat"><strong>6</strong> evidence tools</div>
+      <div class="hero-stat"><strong>3</strong> policy verdicts</div>
+      <div class="hero-stat"><strong>1</strong> refund adapter</div>
+    </div>
+  </section>
+
+  <div class="legend" aria-label="Diagram legend">
+    <span class="legend-item"><span class="legend-swatch swatch-external"></span>PayPal Sandbox</span>
+    <span class="legend-item"><span class="legend-swatch swatch-system"></span>PayPilot system</span>
+    <span class="legend-item"><span class="legend-swatch swatch-agent"></span>Agent operation</span>
+    <span class="legend-item"><span class="legend-swatch swatch-evidence"></span>Evidence &amp; data</span>
+    <span class="legend-item"><span class="legend-swatch swatch-policy"></span>Policy decision</span>
+    <span class="legend-item"><span class="legend-swatch swatch-human"></span>Human approval</span>
+    <span class="legend-item"><span class="legend-swatch swatch-audit"></span>Audit ledger</span>
+    <span class="legend-item"><span class="legend-swatch swatch-stop"></span>Blocked</span>
+  </div>
+
+  <section class="diagram-card" aria-labelledby="diagram-title">
+    <div class="diagram-head">
+      <h2 id="diagram-title">Refund incident workflow</h2>
+      <span class="diagram-meta">sandbox · idempotent · hash-chained</span>
+    </div>
+    <div class="diagram-scroll">
+<svg viewBox="0 0 1400 900" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="arch-title">PayPilot refund incident workflow</title>
+<desc id="arch-desc">PayPal Sandbox capture becomes a refund incident. The agent gathers payment, order, customer, policy, and risk evidence. A deterministic policy gate returns allow, review, or deny. Allow executes a PayPal Sandbox refund; review waits for a human; deny stops. Every step is appended to a hash-chained audit ledger and the chain can be verified.</desc>
+
+    <defs>
+      <pattern id="dotgrid" width="18" height="18" patternUnits="userSpaceOnUse">
+        <circle cx="1" cy="1" r="0.8" fill="#1a2130"/>
+      </pattern>
+      <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#5b6476"/>
+      </marker>
+      <marker id="arrow-green" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#34d399"/>
+      </marker>
+      <marker id="arrow-amber" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#fbbf24"/>
+      </marker>
+      <marker id="arrow-red" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#f87171"/>
+      </marker>
+      <marker id="arrow-orange" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#fb923c"/>
+      </marker>
+      <marker id="arrow-dashed" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L8 4 L0 8 z" fill="#34d399"/>
+      </marker>
+    </defs>
+    <rect x="0" y="0" width="1400" height="900" fill="url(#dotgrid)" opacity="0.55"/>
+    
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+<line x1="340" y1="94" x2="340" y2="112" stroke="#4a5468" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="340" y1="178" x2="340" y2="196" stroke="#4a5468" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="340" y1="262" x2="340" y2="280" stroke="#4a5468" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="340" y1="346" x2="340" y2="364" stroke="#4a5468" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="340" y1="430" x2="340" y2="448" stroke="#4a5468" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="340" y1="550" x2="340" y2="570" stroke="#4a5468" stroke-width="1.5"/>
+<path d="M340 570 L125 570 L125 586" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="340" y1="570" x2="340" y2="586" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<path d="M340 570 L555 570 L555 586" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+<line x1="125" y1="654" x2="125" y2="688" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="340" y1="654" x2="340" y2="688" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+<line x1="555" y1="654" x2="555" y2="688" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+<line x1="255" y1="728" x2="212" y2="728" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+<line x1="425" y1="728" x2="468" y2="728" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+<line x1="125" y1="766" x2="125" y2="808" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="210" y1="842" x2="253" y2="842" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+<line x1="430" y1="146" x2="716" y2="146" stroke="#34d399" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#arrow-dashed)"/>
+<line x1="430" y1="314" x2="716" y2="314" stroke="#34d399" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#arrow-dashed)"/>
+<line x1="490" y1="500" x2="716" y2="500" stroke="#34d399" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#arrow-dashed)"/>
+</g>
+<text x="232" y="716" class="svg-edge-label" text-anchor="middle">yes</text>
+<text x="447" y="716" class="svg-edge-label" text-anchor="middle">no</text>
+<text x="232" y="832" class="svg-edge-label" text-anchor="middle">verify</text>
+<text x="573" y="136" class="svg-edge-label" text-anchor="middle">append</text>
+<text x="573" y="304" class="svg-edge-label" text-anchor="middle">append</text>
+<text x="605" y="490" class="svg-edge-label" text-anchor="middle">records verdict</text>
+
+    <g>
+      <rect x="250" y="30" width="180" height="64" rx="10"
+            fill="#60a5fa" fill-opacity="0.065" stroke="#60a5fa" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="262" y="41" width="22" height="17" rx="5"
+            fill="#60a5fa" fill-opacity="0.16"/>
+      <text x="273.0" y="53" class="svg-num"
+            fill="#60a5fa" text-anchor="middle">01</text>
+      <text x="292" y="54" class="svg-title">PayPal Sandbox</text>
+      <text x="262" y="76" class="svg-sub">create → approve → capture</text>
+    </g>
+
+    <g>
+      <rect x="250" y="114" width="180" height="64" rx="10"
+            fill="#22d3ee" fill-opacity="0.065" stroke="#22d3ee" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="262" y="125" width="22" height="17" rx="5"
+            fill="#22d3ee" fill-opacity="0.16"/>
+      <text x="273.0" y="137" class="svg-num"
+            fill="#22d3ee" text-anchor="middle">02</text>
+      <text x="292" y="138" class="svg-title">Refund incident</text>
+      <text x="262" y="160" class="svg-sub">idempotent per payment</text>
+    </g>
+
+    <g>
+      <rect x="250" y="198" width="180" height="64" rx="10"
+            fill="#a78bfa" fill-opacity="0.065" stroke="#a78bfa" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="262" y="209" width="22" height="17" rx="5"
+            fill="#a78bfa" fill-opacity="0.16"/>
+      <text x="273.0" y="221" class="svg-num"
+            fill="#a78bfa" text-anchor="middle">03</text>
+      <text x="292" y="222" class="svg-title">Agent investigates</text>
+      <text x="262" y="244" class="svg-sub">rules or LLM planner</text>
+    </g>
+
+    <g>
+      <rect x="250" y="282" width="180" height="64" rx="10"
+            fill="#94a3b8" fill-opacity="0.065" stroke="#94a3b8" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="262" y="293" width="22" height="17" rx="5"
+            fill="#94a3b8" fill-opacity="0.16"/>
+      <text x="273.0" y="305" class="svg-num"
+            fill="#94a3b8" text-anchor="middle">04</text>
+      <text x="292" y="306" class="svg-title">Evidence gathered</text>
+      <text x="262" y="328" class="svg-sub">payment · order · customer</text>
+    </g>
+
+    <g>
+      <rect x="250" y="366" width="180" height="64" rx="10"
+            fill="#a78bfa" fill-opacity="0.065" stroke="#a78bfa" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="262" y="377" width="22" height="17" rx="5"
+            fill="#a78bfa" fill-opacity="0.16"/>
+      <text x="273.0" y="389" class="svg-num"
+            fill="#a78bfa" text-anchor="middle">05</text>
+      <text x="292" y="390" class="svg-title">Risk assessment</text>
+      <text x="262" y="412" class="svg-sub">signals + recorded score</text>
+    </g>
+
+    <g>
+      <polygon points="340,450.0 490.0,500 340,550.0 190.0,500"
+               fill="#fbbf24" fill-opacity="0.07" stroke="#fbbf24" stroke-opacity="0.5" stroke-width="1.2"/>
+      <text x="340" y="482" class="svg-num" fill="#fbbf24" text-anchor="middle">06</text>
+      <text x="340" y="502" class="svg-title" text-anchor="middle">Policy gate</text>
+      <text x="340" y="520" class="svg-sub" text-anchor="middle">deterministic · no LLM</text>
+    </g>
+
+    <g>
+      <rect x="40" y="590" width="170" height="64" rx="10"
+            fill="#34d399" fill-opacity="0.065" stroke="#34d399" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="52" y="601" width="30" height="17" rx="5"
+            fill="#34d399" fill-opacity="0.16"/>
+      <text x="67.0" y="613" class="svg-num"
+            fill="#34d399" text-anchor="middle">07A</text>
+      <text x="90" y="614" class="svg-title">ALLOW</text>
+      <text x="52" y="636" class="svg-sub">auto-execute is safe</text>
+    </g>
+
+    <g>
+      <rect x="255" y="590" width="170" height="64" rx="10"
+            fill="#fbbf24" fill-opacity="0.065" stroke="#fbbf24" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="267" y="601" width="30" height="17" rx="5"
+            fill="#fbbf24" fill-opacity="0.16"/>
+      <text x="282.0" y="613" class="svg-num"
+            fill="#fbbf24" text-anchor="middle">07B</text>
+      <text x="305" y="614" class="svg-title">REVIEW</text>
+      <text x="267" y="636" class="svg-sub">needs a human decision</text>
+    </g>
+
+    <g>
+      <rect x="470" y="590" width="170" height="64" rx="10"
+            fill="#f87171" fill-opacity="0.065" stroke="#f87171" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="482" y="601" width="30" height="17" rx="5"
+            fill="#f87171" fill-opacity="0.16"/>
+      <text x="497.0" y="613" class="svg-num"
+            fill="#f87171" text-anchor="middle">07C</text>
+      <text x="520" y="614" class="svg-title">DENY</text>
+      <text x="482" y="636" class="svg-sub">unsafe or unsupported</text>
+    </g>
+
+    <g>
+      <rect x="40" y="690" width="170" height="76" rx="10"
+            fill="#60a5fa" fill-opacity="0.065" stroke="#60a5fa" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="52" y="701" width="30" height="17" rx="5"
+            fill="#60a5fa" fill-opacity="0.16"/>
+      <text x="67.0" y="713" class="svg-num"
+            fill="#60a5fa" text-anchor="middle">08</text>
+      <text x="90" y="714" class="svg-title">PayPal refund</text>
+      <text x="52" y="748" class="svg-sub">captures/{id}/refund</text>
+    </g>
+
+    <g>
+      <rect x="255" y="690" width="170" height="76" rx="10"
+            fill="#fb923c" fill-opacity="0.065" stroke="#fb923c" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="267" y="701" width="30" height="17" rx="5"
+            fill="#fb923c" fill-opacity="0.16"/>
+      <text x="282.0" y="713" class="svg-num"
+            fill="#fb923c" text-anchor="middle">07B</text>
+      <text x="305" y="714" class="svg-title">Human approval</text>
+      <text x="267" y="748" class="svg-sub">approve or reject</text>
+    </g>
+
+    <g>
+      <rect x="470" y="690" width="170" height="76" rx="10"
+            fill="#f87171" fill-opacity="0.065" stroke="#f87171" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="482" y="701" width="30" height="17" rx="5"
+            fill="#f87171" fill-opacity="0.16"/>
+      <text x="497.0" y="713" class="svg-num"
+            fill="#f87171" text-anchor="middle">07C</text>
+      <text x="520" y="714" class="svg-title">Blocked</text>
+      <text x="482" y="748" class="svg-sub">no money moves</text>
+    </g>
+
+    <g>
+      <rect x="40" y="810" width="170" height="64" rx="10"
+            fill="#34d399" fill-opacity="0.065" stroke="#34d399" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="52" y="821" width="30" height="17" rx="5"
+            fill="#34d399" fill-opacity="0.16"/>
+      <text x="67.0" y="833" class="svg-num"
+            fill="#34d399" text-anchor="middle">10A</text>
+      <text x="90" y="834" class="svg-title">Resolved</text>
+      <text x="52" y="856" class="svg-sub">payment &amp; order refunded</text>
+    </g>
+
+    <g>
+      <rect x="255" y="810" width="170" height="64" rx="10"
+            fill="#34d399" fill-opacity="0.065" stroke="#34d399" stroke-opacity="0.42" stroke-width="1"/>
+      <rect x="267" y="821" width="30" height="17" rx="5"
+            fill="#34d399" fill-opacity="0.16"/>
+      <text x="282.0" y="833" class="svg-num"
+            fill="#34d399" text-anchor="middle">10B</text>
+      <text x="305" y="834" class="svg-title">Ledger verified</text>
+      <text x="267" y="856" class="svg-sub">operator checks the chain</text>
+    </g>
+<rect x="720" y="30" width="640" height="840" rx="14" fill="#34d399" fill-opacity="0.02" stroke="#222a38" stroke-width="1"/>
+<text x="752" y="62" class="svg-rail-eyebrow">09 · AUDIT LEDGER</text>
+<text x="752" y="82" class="svg-rail-title">Hash-chained event log</text>
+<text x="752" y="100" class="svg-rail-desc">Every step appends an immutable entry.</text>
+<line x1="780" y1="120" x2="780" y2="820" stroke="#34d399" stroke-opacity="0.22" stroke-width="1.5"/>
+
+    <g>
+      <circle cx="780" cy="140" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="140" x2="820" y2="140" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="118" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="137" class="svg-rail-kind" fill="#34d399">incident_opened</text>
+      <text x="836" y="154" class="svg-rail-desc">incident linked to payment + order</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="235" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="235" x2="820" y2="235" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="213" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="232" class="svg-rail-kind" fill="#34d399">tool_call</text>
+      <text x="836" y="249" class="svg-rail-desc">every evidence read is recorded</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="330" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="330" x2="820" y2="330" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="308" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="327" class="svg-rail-kind" fill="#34d399">action_proposed</text>
+      <text x="836" y="344" class="svg-rail-desc">proposal + cited evidence IDs</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="425" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="425" x2="820" y2="425" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="403" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="422" class="svg-rail-kind" fill="#34d399">policy_verdict</text>
+      <text x="836" y="439" class="svg-rail-desc">allow / review / deny + reason</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="520" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="520" x2="820" y2="520" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="498" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="517" class="svg-rail-kind" fill="#34d399">human_approved</text>
+      <text x="836" y="534" class="svg-rail-desc">only when review needs a person</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="615" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="615" x2="820" y2="615" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="593" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="612" class="svg-rail-kind" fill="#34d399">action_executed</text>
+      <text x="836" y="629" class="svg-rail-desc">PayPal result or failure</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="710" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="710" x2="820" y2="710" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="688" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="707" class="svg-rail-kind" fill="#34d399">incident_resolved</text>
+      <text x="836" y="724" class="svg-rail-desc">outcome + resolved timestamp</text>
+    </g>
+
+    <g>
+      <circle cx="780" cy="805" r="3.5" fill="#34d399" stroke="#34d399" stroke-opacity="0.3" stroke-width="3"/>
+      <line x1="783" y1="805" x2="820" y2="805" stroke="#34d399" stroke-opacity="0.25" stroke-width="1"/>
+      <rect x="820" y="783" width="500" height="44" rx="8"
+            fill="#34d399" fill-opacity="0.035" stroke="#222a38" stroke-width="1"/>
+      <text x="836" y="802" class="svg-rail-kind" fill="#34d399">human_rejected</text>
+      <text x="836" y="819" class="svg-rail-desc">person declined a review action</text>
+    </g>
+<text x="752" y="850" class="svg-rail-desc">GET /api/ledger/verify recomputes the chain</text>
+<text x="752" y="864" class="svg-rail-desc">and reports the first broken sequence.</text>
+</svg>
+    </div>
+  </section>
+
+  <section class="note-grid" aria-label="Design invariants">
+    <article class="note-card">
+      <div class="note-icon">01</div>
+      <h3>Deterministic gate</h3>
+      <p><code>policy.py</code> is plain Python with no model call. The same facts always produce the same allow, review, or deny verdict.</p>
+    </article>
+    <article class="note-card">
+      <div class="note-icon">02</div>
+      <h3>Evidence required</h3>
+      <p>Every proposal cites evidence IDs. A proposal with no evidence is denied before any money can move.</p>
+    </article>
+    <article class="note-card">
+      <div class="note-icon">03</div>
+      <h3>Idempotent by design</h3>
+      <p>Incident creation is idempotent per payment, and an executed action cannot execute twice.</p>
+    </article>
+    <article class="note-card">
+      <div class="note-icon">04</div>
+      <h3>Auditable outcome</h3>
+      <p>Every step appends a SHA-256 hash-chained ledger entry. <code>/api/ledger/verify</code> recomputes the chain.</p>
+    </article>
+  </section>
+
+  <footer class="arch-foot">
+    <span>PayPilot · PayPal AI Hackathon · sandbox-only demonstration</span>
+    <span class="mono">policy.py → tools.py → payment_client.py → db.py</span>
+  </footer>
+</main>
+</body>
+</html>
