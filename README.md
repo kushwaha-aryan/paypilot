@@ -20,32 +20,19 @@ Payment operations often require fast decisions under risk: failed payments may 
 ## Architecture
 
 ```text
-PayPal Sandbox / API requests
-            |
-            v
-     FastAPI endpoints
-            |
-            v
-  Incident + evidence data (SQLite)
-            |
-            v
-        Agent loop
-   (planner + tool registry)
-            |
-            v
-    Deterministic policy gate
-      allow / review / deny
-            |
-      +-----+------+
-      |            |
-  auto-execute   human review
-      |            |
-      v            v
- PayPal adapter   approve/reject
-      \            /
-       \          /
-        v        v
-      Hash-chained ledger
+Incident
+  -> Gemini Planner (AI-generated planning; when configured)
+  -> Structured Plan (parsed/validated tool proposal)
+  -> Tool Registry (evidence and action interface)
+  -> Deterministic Policy Gate (final authority, in code)
+  -> Human Approval (where required by policy)
+  -> PayPal Sandbox action (mock or live sandbox, when allowed/approved)
+  -> Result + hash-chained audit ledger
+
+Notes:
+- AI-generated planning proposes next steps; it does not execute money movement directly.
+- Deterministic policy enforcement decides allow/review/deny and gates execution.
+- Human approval is required for review-gated actions; denied actions do not execute.
 ```
 
 Primary modules:
@@ -64,21 +51,22 @@ Primary modules:
 
 ## How the agent works
 
-1. **Plan the next step.** A planner selects a tool call based on incident context and prior trace.
-2. **Collect evidence.** Read tools (`get_payment`, `get_order`, `get_customer`, `get_customer_history`, `check_risk`, `search_policy`) append evidence rows and ledger entries.
-3. **Propose an action.** The agent proposes an action (e.g. `retry_payment`, `refund`, `flag_for_review`, `request_confirmation`, `close_incident`) with cited evidence IDs.
-4. **Evaluate policy.** `policy.py` returns `allow`, `review`, or `deny` using deterministic rules (no model call).
-5. **Execute or pause.** `allow` actions execute immediately through the tool registry; `review` actions wait for human approval; `deny` actions are blocked.
-6. **Audit everything.** Tool calls, proposals, verdicts, approvals/rejections, and outcomes are appended to the hash-chained ledger.
+1. **Plan the next step (AI-assisted when configured).** The selected planner chooses the next tool/proposal from incident context and prior trace. In this project’s verified configuration, **Gemini 3.1 Flash Lite (`gemini-3.1-flash-lite`)** is the active model planner when `GEMINI_API_KEY` is configured (availability depends on valid credentials, network, quota, and service status).
+2. **Produce a structured plan.** Model responses are parsed and validated into a structured `Plan`/tool proposal before entering the normal execution path; malformed or unsupported output is rejected.
+3. **Use the tool registry / gather evidence.** Read tools (`get_payment`, `get_order`, `get_customer`, `get_customer_history`, `check_risk`, `search_policy`) run through the registry, append evidence rows, and record ledger entries.
+4. **Evaluate policy (deterministic, final authority).** `policy.py` returns `allow`, `review`, or `deny` using deterministic Python rules (no model call). **AI-generated planning is separate from deterministic policy enforcement.**
+5. **Gate execution and approvals.** `allow` actions may execute automatically where policy permits; `review` actions wait for explicit human approval/rejection; `deny` actions are blocked. Not every action is autonomous.
+6. **Execute sandbox action (when allowed/approved) and record outcome.** Approved/allowed payment actions execute via the PayPal adapter (mock or live sandbox, as configured), and every step is appended to the hash-chained audit ledger (`/api/ledger/verify` recomputes the chain).
 
-### AI/agent technology (exact)
+### AI/planner technology (exact)
 
-- **Default planner: deterministic rule-based planner (`RulePlanner`)** — no network calls, no model dependency. This is the default when no LLM API key is configured and is the behavior exercised by the automated tests.
-- **Optional LLM planners (provider-selected):**
-  - **Gemini (`GeminiPlanner`)** — when `GEMINI_API_KEY` is set, the planner can request next-step decisions via the Google Gen AI Python SDK using `GEMINI_MODEL` (default `gemini-3.1-flash-lite`).
-  - **Anthropic (`AnthropicPlanner`)** — when `ANTHROPIC_API_KEY` is set (and no Gemini key is configured), the planner can request next-step decisions via Anthropic’s Messages API using `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`).
-  - If both Gemini and Anthropic keys are configured, **Gemini is selected**. Model outputs are parsed/validated into structured tool proposals before entering the normal execution path.
-- **Policy gate:** always deterministic Python (`policy.py`). LLM planners propose tool calls only; they do **not** execute payment actions directly and cannot bypass the tool registry or policy gate. Final authority over execution is enforced in code.
+- **Verified active planner model (this project configuration):** **Gemini 3.1 Flash Lite** (`gemini-3.1-flash-lite`) via `GeminiPlanner` and the Google Gen AI Python SDK, selected when `GEMINI_API_KEY` is configured. This is verified in the project setup but **not** guaranteed to be always available.
+- **Optional providers and fallback (retained):**
+  - **Gemini (`GeminiPlanner`)** — selected when `GEMINI_API_KEY` is set (default `GEMINI_MODEL=gemini-3.1-flash-lite`).
+  - **Anthropic (`AnthropicPlanner`)** — optional support retained; selected when `ANTHROPIC_API_KEY` is set and no Gemini key is configured (`ANTHROPIC_MODEL` is configurable; Anthropic is not the active/default planner in this verified setup).
+  - **Deterministic rules (`RulePlanner`)** — fallback/offline planner when no supported model API key is configured; used by automated tests.
+  - If both Gemini and Anthropic keys are configured, **Gemini is selected**.
+- **Policy gate:** always deterministic Python (`policy.py`). Model planners **propose structured tool calls only**; they do **not** execute payment actions directly and cannot bypass the tool registry, policy gate, or required human approval. Final authority over execution is enforced in code.
 
 ## PayPal Sandbox integration
 
@@ -147,7 +135,7 @@ Defined in `backend/.env` (loaded on startup). All are optional for mock/offline
 | `GEMINI_API_KEY` | *(empty)* | Enables the Gemini planner when set; leave empty to use other planners/fallback. |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite` | Gemini model ID used by the optional Gemini planner. |
 | `ANTHROPIC_API_KEY` | *(empty)* | Enables the Anthropic planner when set (used if no Gemini key is configured). |
-| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Anthropic model ID used by the optional Anthropic planner. |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Anthropic model ID used by the optional Anthropic planner (not active in this verified Gemini setup). |
 | `PAYPAL_MODE` | `mock` | `mock` for offline deterministic responses, `live` for PayPal Sandbox (requires credentials). |
 | `PAYPAL_CLIENT_ID` | *(empty)* | PayPal Sandbox REST app client ID (live mode). |
 | `PAYPAL_CLIENT_SECRET` | *(empty)* | PayPal Sandbox REST app secret (live mode). |
@@ -155,7 +143,7 @@ Defined in `backend/.env` (loaded on startup). All are optional for mock/offline
 | `PAYPILOT_DB` | `paypilot.db` | SQLite database path (resolved relative to the backend working directory when run as shown). |
 | `MAX_AGENT_STEPS` | `12` | Maximum planner/tool steps per agent run. |
 
-> Planner selection: `GEMINI_API_KEY` → Gemini, else `ANTHROPIC_API_KEY` → Anthropic, else deterministic rules. Model planners are optional; the deterministic policy gate remains the final authority.
+> Planner selection: `GEMINI_API_KEY` → Gemini, else `ANTHROPIC_API_KEY` → Anthropic, else deterministic rules. `/api/health` exposes non-sensitive runtime planner/provider/model info (including `planner_model` when applicable). Model planners are optional and may be unavailable; the deterministic policy gate remains the final authority.
 
 Use `backend/.env.example` as the placeholder template. Never commit real credentials.
 

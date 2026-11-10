@@ -34,7 +34,19 @@ def test_ui_pages_share_navigation(client):
 
 def test_architecture_page_has_policy_branches(client):
     text = client.get("/architecture").text
-    for label in ("ALLOW", "REVIEW", "DENY", "Human approval", "AUDIT LEDGER"):
+    for label in (
+        "Incident",
+        "Gemini Planner",
+        "Structured Plan",
+        "Tool Registry",
+        "Deterministic Policy",
+        "Human Approval",
+        "PayPal",
+        "Result",
+        "allow / review / deny",
+        "AI-generated planning",
+        "Deterministic policy enforcement",
+    ):
         assert label in text
 
 

@@ -51,6 +51,16 @@ class Settings:
         return "rules"
 
     @property
+    def planner_model(self) -> str | None:
+        """Exact planner model/config name for the selected provider (non-sensitive)."""
+        provider = self.planner_provider
+        if provider == "gemini":
+            return self.gemini_model
+        if provider == "anthropic":
+            return self.anthropic_model
+        return None
+
+    @property
     def llm_enabled(self) -> bool:
         return self.planner_provider != "rules"
 
@@ -66,7 +76,7 @@ class Settings:
 def load_settings() -> Settings:
     return Settings(
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
-        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
         gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         paypal_mode=os.getenv("PAYPAL_MODE", "mock").strip().lower(),

@@ -71,6 +71,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "planner": config.settings.planner_provider,
         "planner_provider": config.settings.planner_provider,
+        "planner_model": config.settings.planner_model,
         "llm": config.settings.planner_provider,  # compatibility alias
         "paypal": "live-sandbox" if config.settings.paypal_live else "mock",
     }

@@ -253,16 +253,22 @@
     const paypal = $('#paypal-text');
     const paypalDot = $('#paypal-dot');
     const provider = health.planner_provider || health.planner || health.llm || 'rules';
-    const label = provider === 'gemini' ? 'Gemini'
+    const model = (typeof health.planner_model === 'string' && health.planner_model.trim())
+      ? health.planner_model.trim()
+      : '';
+    const providerLabel = provider === 'gemini' ? 'Gemini'
       : provider === 'anthropic' ? 'Anthropic'
-      : 'rules';
+      : 'Rules';
+    const label = model ? (providerLabel + ' · ' + model) : providerLabel;
     planner.textContent = 'planner: ' + label;
     plannerDot.className = 'dot ' + (
       provider === 'gemini' ? 'dot-ok'
       : provider === 'anthropic' ? 'dot-violet'
       : 'dot-info'
     );
-    $('#planner-badge').title = 'Active planner: ' + provider;
+    $('#planner-badge').title = model
+      ? ('Active planner: ' + providerLabel + ' (' + model + ')')
+      : ('Active planner: ' + providerLabel);
     const live = health.paypal === 'live-sandbox';
     paypal.textContent = 'paypal: ' + (live ? 'sandbox' : 'mock');
     paypalDot.className = 'dot ' + (live ? 'dot-ok' : 'dot-warn');

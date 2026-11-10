@@ -1,12 +1,12 @@
 """Planners behind a common interface.
 
-RulePlanner      — deterministic, no network, always works (default fallback).
-AnthropicPlanner — model-driven planner using the Anthropic Messages API.
+RulePlanner      — deterministic, no network, always works (fallback).
 GeminiPlanner    — model-driven planner using the Google Gen AI SDK.
+AnthropicPlanner — optional model-driven planner using the Anthropic Messages API.
 
 All planners produce the same Plan shape consumed by the agent loop. Model
-planners can only propose tool calls; execution remains gated by the tool
-registry and deterministic policy engine.
+planners can only propose structured tool calls; execution remains gated by the
+tool registry and the deterministic policy engine.
 """
 from __future__ import annotations
 
@@ -65,10 +65,10 @@ PLANNER_TOOLS = [
 
 
 class RulePlanner:
-    """Deterministic decision tree used as the default offline planner.
+    """Deterministic decision tree planner and offline fallback.
 
-    It implements the same investigation and proposal flow expected of the
-    optional LLM planner, providing a stable reference behavior.
+    It implements the same investigation and proposal flow expected of optional
+    model planners, providing stable reference behavior without network calls.
     """
 
     def __init__(self, registry: ToolRegistry):
