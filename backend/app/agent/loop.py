@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from .. import db
-from ..config import settings
+from .. import config
 from .brain import Plan, make_planner
 from .tools import ToolRegistry
 
@@ -36,7 +36,7 @@ class AgentRun:
         proposed: list[dict[str, Any]] = []
         executed: dict[str, Any] | None = None
 
-        for _ in range(settings.max_agent_steps):
+        for _ in range(config.settings.max_agent_steps):
             plan: Plan | None = self.planner.next_action(
                 [self._trace_line(s) for s in self.trace]
             )
@@ -81,7 +81,8 @@ class AgentRun:
 
         return {
             "incident_id": self.incident_id,
-            "planner": "llm" if settings.llm_enabled else "rules",
+            "planner": config.settings.planner_provider,
+            "planner_provider": config.settings.planner_provider,
             "trace": self.trace,
             "actions": [
                 {"action_id": p["action_id"], "verdict": p["verdict"],

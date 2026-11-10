@@ -1,14 +1,12 @@
-"""Two planners behind one interface.
+"""Planners behind a common interface.
 
-RulePlanner   — deterministic, no network, always works. This is the path that
-                runs by default and the path the test suite exercises.
-LLMPlanner    — takes the structured tool list and the incident briefing, asks
-                the model which tools to call, and lets the tool registry and
-                policy engine enforce the limits regardless of what it says.
+RulePlanner      — deterministic, no network, always works (default fallback).
+AnthropicPlanner — model-driven planner using the Anthropic Messages API.
+GeminiPlanner    — model-driven planner using the Google Gen AI SDK.
 
-Both produce the same output shape, so the loop that consumes them is identical.
-The important property: the LLM is not special. It gets no capability the
-rules planner does not have, and no ability to bypass the policy engine.
+All planners produce the same Plan shape consumed by the agent loop. Model
+planners can only propose tool calls; execution remains gated by the tool
+registry and deterministic policy engine.
 """
 from __future__ import annotations
 
@@ -16,7 +14,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import settings
+from .. import config
 from .tools import ToolRegistry
 
 
@@ -25,6 +23,45 @@ class Plan:
     thought: str
     tool: str
     args: dict[str, Any] = field(default_factory=dict)
+
+
+ALLOWED_TOOLS = {
+    "get_payment",
+    "get_order",
+    "get_customer",
+    "get_customer_history",
+    "check_risk",
+    "search_policy",
+    "propose_action",
+    "execute_action",
+    "stop",
+}
+
+PLANNER_SYSTEM_PROMPT = (
+    "You are PayPilot, an autonomous payment-operations agent for an "
+    "online merchant. Investigate the incident using tools, then propose "
+    "exactly one action. Rules you must follow:\n"
+    "- Cite evidence ids in evidence_ids for every proposed action.\n"
+    "- Never retry a payment that already succeeded.\n"
+    "- Never refund more than the original payment amount.\n"
+    "- A fraud flag requires risk score >= 0.5.\n"
+    "- When you have proposed an action, stop.\n"
+    "Respond only with JSON: "
+    '{"thought": str, "tool": str, "args": {...}} or {"done": true,'
+    ' "summary": str}.'
+)
+
+PLANNER_TOOLS = [
+    {"name": "get_payment", "args": {}},
+    {"name": "get_order", "args": {}},
+    {"name": "get_customer", "args": {}},
+    {"name": "get_customer_history", "args": {}},
+    {"name": "check_risk", "args": {}},
+    {"name": "search_policy", "args": {"query": "str"}},
+    {"name": "propose_action",
+     "args": {"type": "str", "params": "object", "evidence_ids": "array[str]"}},
+    {"name": "execute_action", "args": {"action_id": "str"}},
+]
 
 
 class RulePlanner:
@@ -222,72 +259,131 @@ class RulePlanner:
         return [r["id"] for r in rows]
 
 
-class LLMPlanner:
-    """Model-driven planner. Same capabilities, different judgement."""
+class _ModelPlannerBase:
+    """Shared prompt construction, response parsing, and validation for model planners."""
+
+    provider = "llm"
 
     def __init__(self, registry: ToolRegistry):
         self.reg = registry
         self.step = 0
 
-    def next_action(self, trace: list[str]) -> Plan | None:
-        from anthropic import Anthropic
-
-        self.step += 1
-        client = Anthropic(api_key=settings.anthropic_api_key)
-
-        system = (
-            "You are PayPilot, an autonomous payment-operations agent for an "
-            "online merchant. Investigate the incident using tools, then propose "
-            "exactly one action. Rules you must follow:\n"
-            "- Cite evidence ids in evidence_ids for every proposed action.\n"
-            "- Never retry a payment that already succeeded.\n"
-            "- Never refund more than the original payment amount.\n"
-            "- A fraud flag requires risk score >= 0.5.\n"
-            "- When you have proposed an action, stop.\n"
-            "Respond only with JSON: "
-            '{"thought": str, "tool": str, "args": {...}} or {"done": true,'
-            ' "summary": str}.'
+    def _build_user_prompt(self, trace: list[str]) -> str:
+        return json.dumps(
+            {
+                "incident": self.reg.describe_incident(),
+                "available_tools": PLANNER_TOOLS,
+                "steps_so_far": trace,
+            },
+            sort_keys=True,
         )
 
-        tools = [
-            {"name": "get_payment", "args": {}},
-            {"name": "get_order", "args": {}},
-            {"name": "get_customer", "args": {}},
-            {"name": "get_customer_history", "args": {}},
-            {"name": "check_risk", "args": {}},
-            {"name": "search_policy", "args": {"query": "str"}},
-            {"name": "propose_action",
-             "args": {"type": "str", "params": "object",
-                      "evidence_ids": "array[str]"}},
-            {"name": "execute_action", "args": {"action_id": "str"}},
-        ]
+    def _complete(self, system: str, user: str) -> str:
+        raise NotImplementedError
 
-        user = json.dumps({
-            "incident": self.reg.describe_incident(),
-            "available_tools": tools,
-            "steps_so_far": trace,
-        })
+    def _parse_plan(self, text: str) -> Plan | None:
+        raw = (text or "").strip()
+        if not raw:
+            return Plan("Model returned empty output; stopping.", "stop")
 
+        try:
+            data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        except (ValueError, json.JSONDecodeError):
+            return Plan("Model returned unparseable output; stopping.", "stop")
+
+        if not isinstance(data, dict):
+            return Plan("Model returned invalid output; stopping.", "stop")
+        if data.get("done"):
+            return None
+
+        thought = data.get("thought")
+        tool = data.get("tool")
+        args = data.get("args")
+
+        if not isinstance(thought, str):
+            thought = ""
+        if not isinstance(tool, str) or tool not in ALLOWED_TOOLS:
+            return Plan("Model proposed an unsupported tool; stopping.", "stop")
+        if args is None:
+            args = {}
+        if not isinstance(args, dict):
+            return Plan("Model returned invalid arguments; stopping.", "stop")
+
+        # Structured proposal validation before it reaches the policy gate.
+        if tool == "propose_action":
+            action_type = args.get("type")
+            params = args.get("params")
+            evidence_ids = args.get("evidence_ids")
+            if not isinstance(action_type, str) or not action_type:
+                return Plan("Model returned an invalid action proposal; stopping.", "stop")
+            if params is None:
+                args = {**args, "params": {}}
+            elif not isinstance(params, dict):
+                return Plan("Model returned invalid action params; stopping.", "stop")
+            if evidence_ids is None:
+                args = {**args, "evidence_ids": []}
+            elif not isinstance(evidence_ids, list) or not all(
+                isinstance(e, str) for e in evidence_ids
+            ):
+                return Plan("Model returned invalid evidence ids; stopping.", "stop")
+
+        return Plan(thought=thought, tool=tool, args=args)
+
+    def next_action(self, trace: list[str]) -> Plan | None:
+        self.step += 1
+        try:
+            text = self._complete(PLANNER_SYSTEM_PROMPT, self._build_user_prompt(trace))
+        except Exception:
+            return Plan("Model request failed; stopping.", "stop")
+        return self._parse_plan(text)
+
+
+class AnthropicPlanner(_ModelPlannerBase):
+    """Model-driven planner using Anthropic's Messages API."""
+
+    provider = "anthropic"
+
+    def _complete(self, system: str, user: str) -> str:
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key=config.settings.anthropic_api_key)
         resp = client.messages.create(
-            model=settings.anthropic_model,
+            model=config.settings.anthropic_model,
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        try:
-            data = json.loads(text[text.index("{"): text.rindex("}") + 1])
-        except (ValueError, json.JSONDecodeError):
-            return Plan("Model returned unparseable output; stopping.", "stop")
+        return "".join(
+            b.text for b in getattr(resp, "content", []) if getattr(b, "type", None) == "text"
+        ).strip()
 
-        if data.get("done"):
-            return None
-        return Plan(
-            thought=data.get("thought", ""),
-            tool=data.get("tool", "stop"),
-            args=data.get("args") or {},
+
+class GeminiPlanner(_ModelPlannerBase):
+    """Model-driven planner using the Google Gen AI SDK."""
+
+    provider = "gemini"
+
+    def _complete(self, system: str, user: str) -> str:
+        from google import genai
+
+        client = genai.Client(api_key=config.settings.gemini_api_key)
+        prompt = f"{system}\n\n{user}"
+        resp = client.models.generate_content(
+            model=config.settings.gemini_model,
+            contents=prompt,
         )
+        text = getattr(resp, "text", None)
+        return text.strip() if isinstance(text, str) else ""
+
+
+# Backward-compatible alias for the existing Anthropic planner.
+LLMPlanner = AnthropicPlanner
 
 
 def make_planner(registry: ToolRegistry):
-    return LLMPlanner(registry) if settings.llm_enabled else RulePlanner(registry)
+    provider = config.settings.planner_provider
+    if provider == "gemini":
+        return GeminiPlanner(registry)
+    if provider == "anthropic":
+        return AnthropicPlanner(registry)
+    return RulePlanner(registry)

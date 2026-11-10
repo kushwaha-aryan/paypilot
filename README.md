@@ -74,8 +74,11 @@ Primary modules:
 ### AI/agent technology (exact)
 
 - **Default planner: deterministic rule-based planner (`RulePlanner`)** — no network calls, no model dependency. This is the default when no LLM API key is configured and is the behavior exercised by the automated tests.
-- **Optional LLM planner (`LLMPlanner`)** — when `ANTHROPIC_API_KEY` is set, the planner can request next-step decisions from Anthropic’s Messages API using the configured model (`ANTHROPIC_MODEL`, default `claude-sonnet-5-5`). The LLM proposes tool usage; it does **not** bypass tool restrictions or the policy gate.
-- **Policy gate:** always deterministic Python (`policy.py`). Final authority over execution is enforced in code (tool registry + policy verdict), not by the model.
+- **Optional LLM planners (provider-selected):**
+  - **Gemini (`GeminiPlanner`)** — when `GEMINI_API_KEY` is set, the planner can request next-step decisions via the Google Gen AI Python SDK using `GEMINI_MODEL` (default `gemini-3.1-flash-lite`).
+  - **Anthropic (`AnthropicPlanner`)** — when `ANTHROPIC_API_KEY` is set (and no Gemini key is configured), the planner can request next-step decisions via Anthropic’s Messages API using `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`).
+  - If both Gemini and Anthropic keys are configured, **Gemini is selected**. Model outputs are parsed/validated into structured tool proposals before entering the normal execution path.
+- **Policy gate:** always deterministic Python (`policy.py`). LLM planners propose tool calls only; they do **not** execute payment actions directly and cannot bypass the tool registry or policy gate. Final authority over execution is enforced in code.
 
 ## PayPal Sandbox integration
 
@@ -87,7 +90,7 @@ Primary modules:
 ## Tech stack
 
 - **Backend:** Python, FastAPI, Pydantic, SQLite, httpx
-- **Agent/planning:** custom rule-based planner; optional Anthropic SDK integration
+- **Agent/planning:** custom rule-based planner; optional Google Gen AI SDK (Gemini) and Anthropic SDK planners
 - **Payments:** PayPal Sandbox REST APIs (Orders, Captures, Refunds)
 - **Frontend:** static HTML/CSS/JavaScript served by FastAPI
 - **Testing:** pytest + FastAPI TestClient
@@ -97,7 +100,7 @@ Primary modules:
 - Python 3.11+ (3.13 tested in development)
 - Windows PowerShell (instructions below) or a POSIX shell
 - Optional (for live sandbox): PayPal Developer sandbox REST app credentials
-- Optional (for LLM planner): Anthropic API key
+- Optional (for LLM planner): Gemini API key and/or Anthropic API key
 
 ## Setup (Windows)
 
@@ -141,14 +144,18 @@ Defined in `backend/.env` (loaded on startup). All are optional for mock/offline
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | *(empty)* | Enables the LLM planner when set; leave empty to use the deterministic rule planner. |
-| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Anthropic model ID used by the optional LLM planner. |
+| `GEMINI_API_KEY` | *(empty)* | Enables the Gemini planner when set; leave empty to use other planners/fallback. |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | Gemini model ID used by the optional Gemini planner. |
+| `ANTHROPIC_API_KEY` | *(empty)* | Enables the Anthropic planner when set (used if no Gemini key is configured). |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Anthropic model ID used by the optional Anthropic planner. |
 | `PAYPAL_MODE` | `mock` | `mock` for offline deterministic responses, `live` for PayPal Sandbox (requires credentials). |
 | `PAYPAL_CLIENT_ID` | *(empty)* | PayPal Sandbox REST app client ID (live mode). |
 | `PAYPAL_CLIENT_SECRET` | *(empty)* | PayPal Sandbox REST app secret (live mode). |
 | `PAYPAL_API_BASE` | `https://api-m.sandbox.paypal.com` | PayPal API base URL (sandbox). |
 | `PAYPILOT_DB` | `paypilot.db` | SQLite database path (resolved relative to the backend working directory when run as shown). |
 | `MAX_AGENT_STEPS` | `12` | Maximum planner/tool steps per agent run. |
+
+> Planner selection: `GEMINI_API_KEY` → Gemini, else `ANTHROPIC_API_KEY` → Anthropic, else deterministic rules. Model planners are optional; the deterministic policy gate remains the final authority.
 
 Use `backend/.env.example` as the placeholder template. Never commit real credentials.
 

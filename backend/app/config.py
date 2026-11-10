@@ -32,6 +32,8 @@ DEFAULT_CHECKOUT_CURRENCY = "USD"
 class Settings:
     anthropic_api_key: str | None
     anthropic_model: str
+    gemini_api_key: str | None
+    gemini_model: str
     paypal_mode: str            # "mock" | "live"
     paypal_client_id: str | None
     paypal_client_secret: str | None
@@ -40,8 +42,17 @@ class Settings:
     max_agent_steps: int
 
     @property
+    def planner_provider(self) -> str:
+        """Selected planner provider: gemini, anthropic, or rules."""
+        if self.gemini_api_key:
+            return "gemini"
+        if self.anthropic_api_key:
+            return "anthropic"
+        return "rules"
+
+    @property
     def llm_enabled(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return self.planner_provider != "rules"
 
     @property
     def paypal_live(self) -> bool:
@@ -56,6 +67,8 @@ def load_settings() -> Settings:
     return Settings(
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
+        gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         paypal_mode=os.getenv("PAYPAL_MODE", "mock").strip().lower(),
         paypal_client_id=os.getenv("PAYPAL_CLIENT_ID") or None,
         paypal_client_secret=os.getenv("PAYPAL_CLIENT_SECRET") or None,

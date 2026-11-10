@@ -12,7 +12,9 @@ from pathlib import Path
 
 _tmp = Path(tempfile.mkdtemp(prefix="paypilot-test-"))
 os.environ["PAYPILOT_DB"] = str(_tmp / "test.db")
-os.environ.pop("ANTHROPIC_API_KEY", None)
+# Force deterministic planner and mock payments for tests, regardless of local .env.
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 os.environ["PAYPAL_MODE"] = "mock"
 
 import pytest  # noqa: E402

@@ -22,6 +22,7 @@ from . import db, incidents, sandbox
 from .agent.loop import run_incident
 from .agent.tools import ToolRegistry
 from .config import DEFAULT_CHECKOUT_CURRENCY, settings
+from . import config
 from .payment_client import PayPilotClient
 
 app = FastAPI(
@@ -68,8 +69,10 @@ def api_docs() -> FileResponse:
 def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "llm": "anthropic" if settings.llm_enabled else "deterministic-rules",
-        "paypal": "live-sandbox" if settings.paypal_live else "mock",
+        "planner": config.settings.planner_provider,
+        "planner_provider": config.settings.planner_provider,
+        "llm": config.settings.planner_provider,  # compatibility alias
+        "paypal": "live-sandbox" if config.settings.paypal_live else "mock",
     }
 
 
